@@ -52,31 +52,26 @@ fn find_similar_commands(input: &str) -> Vec<String> {
 }
 
 /// Find all external commands available in PATH
-fn find_external_commands() -> HashMap<String, PathBuf> {
-    let mut commands = HashMap::new();
+pub fn find_external_commands() -> HashMap<String, PathBuf> {
+    let mut commands: HashMap<String, PathBuf> = HashMap::new();
 
     if let Some(dirs) = search_directories() {
         for dir in dirs {
             if let Ok(entries) = fs_err::read_dir(&dir) {
                 for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        // Check if it's a pixi extension
-                        if let Some(cmd_name) = name.strip_prefix("pixi-") {
-                            // Remove .exe suffix on Windows
-                            let cmd_name = {
-                                #[cfg(target_family = "windows")]
-                                {
-                                    cmd_name
-                                        .strip_suffix(env::consts::EXE_SUFFIX)
-                                        .unwrap_or(cmd_name)
-                                }
-                                #[cfg(not(target_family = "windows"))]
-                                {
-                                    cmd_name
-                                }
-                            };
+                    let path = entry.path();
 
-                            let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        // Check if it's a pixi extension
+                        if let Some(mut cmd_name) = name.strip_prefix("pixi-") {
+                            // Remove .exe suffix on Windows
+                            #[cfg(target_family = "windows")]
+                            {
+                                cmd_name = cmd_name
+                                    .strip_suffix(env::consts::EXE_SUFFIX)
+                                    .unwrap_or(cmd_name);
+                            }
+
                             if path.is_executable() {
                                 commands.insert(cmd_name.to_string(), path);
                             }
