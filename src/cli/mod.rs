@@ -284,6 +284,18 @@ pub struct LockFileUsageConfig {
 }
 
 pub async fn execute() -> miette::Result<()> {
+    // Check for help case before parsing to intercept and show custom help with extensions
+    let raw_args: Vec<String> = std::env::args().collect();
+
+    // If just "pixi" or "pixi --help" or "pixi -h" or "pixi help", show custom help
+    if raw_args.len() == 1
+        || (raw_args.len() == 2
+            && (raw_args[1] == "--help" || raw_args[1] == "-h" || raw_args[1] == "help"))
+    {
+        show_help_with_extensions();
+        return Ok(());
+    }
+
     let args = Args::parse();
 
     // Extract values we need before moving args
