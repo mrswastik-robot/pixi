@@ -60,7 +60,6 @@ pub fn find_external_commands() -> HashMap<String, PathBuf> {
             if let Ok(entries) = fs_err::read_dir(&dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         // Check if it's a pixi extension
                         if let Some(mut cmd_name) = name.strip_prefix("pixi-") {
