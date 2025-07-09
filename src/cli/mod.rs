@@ -1,5 +1,5 @@
-use clap::Parser;
 use clap::builder::styling::{AnsiColor, Color, Style};
+use clap::{CommandFactory, Parser};
 use indicatif::ProgressDrawTarget;
 use miette::IntoDiagnostic;
 use pixi_consts::consts;
@@ -67,10 +67,10 @@ Ask a question on the Prefix Discord server: https://discord.gg/kKV8ZxyzY4
 For more information, see the documentation at: https://pixi.sh
 ", consts::PIXI_VERSION),
 )]
-#[clap(arg_required_else_help = true, styles=get_styles(), disable_help_flag = true, allow_external_subcommands = true)]
+#[clap(styles=get_styles(), disable_help_flag = true, disable_help_subcommand = true, allow_external_subcommands = true)]
 pub struct Args {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 
     #[clap(flatten)]
     global_options: GlobalOptions,
@@ -79,11 +79,19 @@ pub struct Args {
 #[derive(Debug, Parser)]
 pub struct GlobalOptions {
     /// Display help information
-    #[clap(long, short, global = true, action = clap::ArgAction::Help, help_heading = consts::CLAP_GLOBAL_OPTIONS)]
-    help: Option<bool>,
+    #[clap(
+        // long = "help-flag",          // unique internal long name
+        alias = "help",              // users can still write --help
+        short = 'h',
+        // id = "help_flag",
+        // action = clap::ArgAction::Help,
+        global = true,
+        help_heading = consts::CLAP_GLOBAL_OPTIONS
+    )]
+    help: bool,
 
     /// Increase logging verbosity (-v for warnings, -vv for info, -vvv for debug, -vvvv for trace)
-    #[clap(short, long, action = clap::ArgAction::Count, global = true, help_heading = consts::CLAP_GLOBAL_OPTIONS)]
+    #[clap(short = 'v', long, action = clap::ArgAction::Count, global = true, help_heading = consts::CLAP_GLOBAL_OPTIONS)]
     verbose: u8,
 
     /// Decrease logging verbosity (quiet mode)
@@ -145,6 +153,7 @@ pub enum Command {
     #[clap(visible_alias = "ls")]
     List(list::Args),
     Lock(lock::Args),
+    Help,
     Reinstall(reinstall::Args),
     #[clap(visible_alias = "rm")]
     Remove(remove::Args),
@@ -197,7 +206,24 @@ impl From<LockFileUsageConfig> for crate::environment::LockFileUsage {
 
 pub async fn execute() -> miette::Result<()> {
     let args = Args::parse();
+
+    // Extract values we need before moving args
+    let no_progress = args.no_progress();
+    let log_level_filter = args.log_level_filter();
+
     set_console_colors(&args);
+
+    // Handle help flag or missing command as both will show help
+    if args.global_options.help {
+        show_help_with_extensions();
+        return Ok(());
+    }
+
+    let (Some(command), global_options) = (args.command, args.global_options) else {
+        show_help_with_extensions();
+        return Ok(());
+    };
+
     let use_colors = console::colors_enabled_stderr();
     let in_ci = matches!(env::var("CI").as_deref(), Ok("1" | "true"));
     let no_wrap = matches!(env::var("PIXI_NO_WRAP").as_deref(), Ok("1" | "true"));
@@ -214,11 +240,11 @@ pub async fn execute() -> miette::Result<()> {
     }))?;
 
     // Hide all progress bars if the user requested it.
-    if args.no_progress() {
+    if no_progress {
         global_multi_progress().set_draw_target(ProgressDrawTarget::hidden());
     }
 
-    let (low_level_filter, level_filter, pixi_level) = match args.log_level_filter() {
+    let (low_level_filter, level_filter, pixi_level) = match log_level_filter {
         LevelFilter::OFF => (LevelFilter::OFF, LevelFilter::OFF, LevelFilter::OFF),
         LevelFilter::ERROR => (LevelFilter::ERROR, LevelFilter::ERROR, LevelFilter::WARN),
         LevelFilter::WARN => (LevelFilter::WARN, LevelFilter::WARN, LevelFilter::INFO),
@@ -258,7 +284,7 @@ pub async fn execute() -> miette::Result<()> {
         .init();
 
     // Execute the command
-    execute_command(args.command, &args.global_options).await
+    execute_command(command, &global_options).await
 }
 
 /// Execute the actual command
@@ -296,7 +322,17 @@ pub async fn execute_command(
         Command::Lock(cmd) => lock::execute(cmd).await,
         Command::Exec(args) => exec::execute(args).await,
         Command::Build(args) => build::execute(args).await,
-        Command::External(args) => command_info::execute_external_command(args),
+        Command::Help => {
+            show_help_with_extensions();
+            Ok(())
+        }
+        Command::External(args) => {
+            // if matches!(args.first().map(String::as_str), Some("help")) {
+            //     show_help_with_extensions();
+            //     return Ok(());
+            // }
+            command_info::execute_external_command(args)
+        }
     }
 }
 
@@ -368,4 +404,22 @@ pub fn get_styles() -> clap::builder::Styles {
                 .fg_color(Some(Color::Ansi(AnsiColor::Green))),
         )
         .placeholder(Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightCyan))))
+}
+
+/// Display help with extensions section appended
+fn show_help_with_extensions() {
+    let styles = get_styles();
+    let mut cmd = Args::command().styles(styles);
+
+    let _ = cmd.write_help(&mut std::io::stdout());
+    println!();
+
+    // Add extensions section
+    let external_commands = command_info::find_external_commands();
+    if !external_commands.is_empty() {
+        println!("\nAvailable Extensions:");
+        for (name, _path) in external_commands {
+            println!("    {:<15} (via pixi-{})", name, name);
+        }
+    }
 }
