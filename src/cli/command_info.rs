@@ -52,8 +52,8 @@ fn find_similar_commands(input: &str) -> Vec<String> {
 }
 
 /// Find all external commands available in PATH
-pub fn find_external_commands() -> HashMap<String, PathBuf> {
-    let mut commands: HashMap<String, PathBuf> = HashMap::new();
+pub(crate) fn find_external_commands() -> HashMap<String, PathBuf> {
+    let mut commands = HashMap::new();
 
     if let Some(dirs) = search_directories() {
         for dir in dirs {
